@@ -145,39 +145,46 @@ contract Microlending {
     uint256 amount;
     uint256 interestRate;
     uint256 duration;
-    uint256 endTime;
+    uint256 requestTime;
     bool repaid;
   }
 
   Loan[] public loans;
   mapping(address => uint256) public balances;
 
-  event LoanRequested(address indexed borrower, uint256 amount, uint256 interestRate, uint256 duration, uint256 endTime);
+  event LoanRequested(address indexed borrower, uint256 amount, uint256 interestRate, uint256 duration);
   event LoanRepaid(uint256 loanId, uint256 amount);
+
+  uint256 public totalLendingFunds;
 
   function requestLoan(uint256 amount, uint256 interestRate, uint256 duration) external {
     require(amount > 0, "Amount must be greater than zero");
     require(interestRate > 0, "Interest rate must be greater than zero");
     require(duration > 0, "Duration must be greater than zero");
+    require(balances[msg.sender] >= amount, "Insufficient balance");
 
-    uint256 endTime = block.timestamp + duration;
+    uint256 requestTime = block.timestamp;
+    uint256 endTime = requestTime + duration;
 
-    loans.push(Loan(msg.sender, amount, interestRate, duration, endTime, false));
+    loans.push(Loan(msg.sender, amount, interestRate, duration, requestTime, false));
+    balances[msg.sender] -= amount;
+    totalLendingFunds += amount;
 
-    emit LoanRequested(msg.sender, amount, interestRate, duration, endTime);
+    emit LoanRequested(msg.sender, amount, interestRate, duration);
   }
 
-  function repayLoan(uint256 loanId) external {
+  function repayLoan(uint256 loanId) external payable {
     Loan storage loan = loans[loanId];
 
     require(msg.sender == loan.borrower, "Only borrower can repay the loan");
     require(!loan.repaid, "Loan already repaid");
+    require(msg.value == (loan.amount + (loan.amount * loan.interestRate / 100)), "Incorrect repayment amount");
 
-    uint256 amount = loan.amount + (loan.amount * loan.interestRate / 100);
-    balances[msg.sender] -= amount;
     loan.repaid = true;
+    totalLendingFunds -= loan.amount;
+    balances[msg.sender] += msg.value;
 
-    emit LoanRepaid(loanId, amount);
+    emit LoanRepaid(loanId, msg.value);
   }
 
   function deposit() external payable {
@@ -191,14 +198,12 @@ contract Microlending {
     require(amount <= balances[msg.sender], "Insufficient balance");
 
     balances[msg.sender] -= amount;
+    totalLendingFunds -= amount;
 
     (bool success, ) = msg.sender.call{value: amount}("");
     require(success, "Withdrawal failed");
   }
 }
-```
-
-Let's Breakdown the contract line by line:
 
 ```solidity
     contract Microlending {
